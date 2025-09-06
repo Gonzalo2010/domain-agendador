@@ -13,9 +13,15 @@ app.use("/static", express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("Faltan SUPABASE_URL o SUPABASE_*KEY en el entorno");
+  process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function getSlug(host) {
   const parts = (host || "").split(":")[0].split(".");
