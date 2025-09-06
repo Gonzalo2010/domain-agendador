@@ -1,12 +1,350 @@
 <!doctype html>
-<html>
+<html lang="es">
 <head>
   <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title><%= org.name %> · Agendador</title>
   <link rel="stylesheet" href="<%= cdn %>/styles.css"/>
+  <style>
+    /* —— estilos extra del modal, toasts y layout —— */
+    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand img{height:40px;width:40px;object-fit:contain;border-radius:10px;border:1px solid #223}
+    .actions{display:flex;gap:8px}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid #223;background:#0f1417;color:var(--text);cursor:pointer}
+    .btn.primary{background:var(--acc);color:#032317;border:none;font-weight:700}
+    .btn.ghost{background:transparent}
+    .muted{color:var(--muted)}
+    .hero{background:linear-gradient(180deg, rgba(16,185,129,0.09), transparent);border:1px solid #173126;padding:18px;border-radius:16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media (min-width:800px){ .grid{grid-template-columns:1.4fr .6fr} }
+
+    /* Modal */
+    .modal-wrap{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:40}
+    .modal{width:100%;max-width:520px;background:#0e1417;border:1px solid #1b2a2e;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+    .modal header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #1b2a2e}
+    .modal main{padding:16px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .tabs{display:flex;gap:8px;margin:8px 0 2px}
+    .tab{flex:1;text-align:center;border:1px solid #223;border-radius:10px;padding:8px 10px;cursor:pointer}
+    .tab.active{background:#122026;border-color:#27413f}
+    .hint{font-size:12px;color:var(--muted)}
+    .code-input{letter-spacing:8px;text-align:center;font-size:22px;font-weight:700}
+    .center{text-align:center}
+    .danger{color:#f87171}
+    .success{color:#34d399}
+    .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:#10171b;border:1px solid #1f2a2f;padding:10px 14px;border-radius:12px;display:none;z-index:50}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #234;background:#0e1814;color:#b7f5db;font-size:12px}
+    .list{display:grid;gap:10px}
+    .item{border:1px solid #172126;background:#0f1417;border-radius:12px;padding:12px}
+    .divider{border-top:1px dashed #23363b;margin:14px 0}
+    .inline{display:flex;gap:10px;align-items:center}
+  </style>
 </head>
 <body>
-  <h1><%= org.name %></h1>
-  <p>Slug: <%= org.slug %></p>
+  <main class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <% if (org.logo_url) { %>
+          <img src="<%= org.logo_url %>" alt="<%= org.name %>"/>
+        <% } else { %>
+          <div class="badge">/<%= org.slug %></div>
+        <% } %>
+        <div>
+          <h1 style="margin:0"><%= org.name %></h1>
+          <div class="muted">Agenda online</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="openLogin" class="btn primary">Reservar / Iniciar sesión</button>
+        <button id="logoutBtn" class="btn ghost" title="Cerrar sesión">Salir</button>
+      </div>
+    </div>
+
+    <section class="grid">
+      <div class="hero">
+        <h2 style="margin:0 0 8px">Reserva tu cita en 10 segundos</h2>
+        <p class="muted">Te verificamos por WhatsApp o por email. Sin contraseñas, sin dramas.</p>
+        <div class="divider"></div>
+        <div class="inline">
+          <span class="badge">Estado WhatsApp</span>
+          <span class="muted">Si no recibes el código por WhatsApp, escanea el QR:</span>
+          <a class="btn" href="/whatsapp/qr" target="_blank">Ver QR</a>
+          <a class="btn" href="/qr.png" target="_blank">/qr.png</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Próximas citas</h3>
+        <div id="nextAppointments" class="list">
+          <div class="item muted">Inicia sesión para ver tus próximas reservas aquí. (Placeholder)</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Cómo funciona</h3>
+      <ol class="muted">
+        <li>Entra con tu teléfono (WhatsApp) o tu email.</li>
+        <li>Recibes un código de 4 dígitos que caduca en 15 minutos.</li>
+        <li>Verificas y listo: reservas en 3 toques.</li>
+      </ol>
+    </section>
+  </main>
+
+  <!-- —— Modal de login/registro —— -->
+  <div id="loginModal" class="modal-wrap" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header>
+        <strong id="modalTitle">Acceso de clientes</strong>
+        <button id="closeLogin" class="btn">✕</button>
+      </header>
+      <main>
+        <div class="tabs" role="tablist" aria-label="Canal de verificación">
+          <button class="tab active" id="tabWa" data-channel="whatsapp" role="tab" aria-selected="true">WhatsApp</button>
+          <button class="tab" id="tabEmail" data-channel="email" role="tab" aria-selected="false">Email</button>
+        </div>
+
+        <!-- Form envío código -->
+        <form id="sendForm" autocomplete="off">
+          <div class="row">
+            <label>Nombre
+              <input name="name" required placeholder="Tu nombre"/>
+            </label>
+            <label id="phoneLabel">Teléfono
+              <input name="phone" placeholder="+34..." inputmode="tel"/>
+            </label>
+          </div>
+          <label id="emailLabel" style="display:none">Email
+            <input name="email" type="email" placeholder="ejemplo@correo.com"/>
+          </label>
+          <div class="hint">Te mandaremos un código de 4 dígitos. Caduca en 15 minutos.</div>
+          <input type="hidden" name="channel" value="whatsapp"/>
+          <div class="inline" style="margin-top:8px">
+            <button class="btn primary" id="sendBtn">Enviar código</button>
+            <span id="sendStatus" class="muted"></span>
+          </div>
+        </form>
+
+        <div class="divider"></div>
+
+        <!-- Form verificación -->
+        <form id="verifyForm" autocomplete="off">
+          <div class="row">
+            <label>Teléfono o email
+              <input name="identity" placeholder="+34... o correo" required/>
+            </label>
+            <label>Código
+              <input name="code" class="code-input" maxlength="4" placeholder="1234" required/>
+            </label>
+          </div>
+          <div class="inline">
+            <button class="btn primary" id="verifyBtn">Verificar y entrar</button>
+            <span id="timer" class="muted">15:00</span>
+          </div>
+          <div class="inline">
+            <button type="button" class="btn" id="resendBtn">Reenviar código</button>
+            <span id="attempts" class="hint"></span>
+          </div>
+          <div id="warnWa" class="hint" style="display:none;margin-top:6px">
+            ¿No llega por WhatsApp? <a href="/whatsapp/qr" target="_blank">Escanea el QR</a> o abre <a href="/qr.png" target="_blank">/qr.png</a>.
+          </div>
+        </form>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // ======= helpers UI =======
+    const $ = (s)=>document.querySelector(s);
+    const show = (el, v=true)=> el.style.display = v ? '' : 'none';
+    const toast = (msg, ms=2200)=>{ const t=$('#toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', ms); };
+
+    // ======= estado =======
+    const modal = $('#loginModal');
+    const openLogin = $('#openLogin');
+    const closeLogin = $('#closeLogin');
+
+    const tabWa = $('#tabWa');
+    const tabEmail = $('#tabEmail');
+    const sendForm = $('#sendForm');
+    const verifyForm = $('#verifyForm');
+    const sendStatus = $('#sendStatus');
+    const sendBtn = $('#sendBtn');
+    const verifyBtn = $('#verifyBtn');
+    const timerEl = $('#timer');
+    const attemptsEl = $('#attempts');
+    const resendBtn = $('#resendBtn');
+    const warnWa = $('#warnWa');
+    const logoutBtn = $('#logoutBtn');
+
+    const phoneLabel = $('#phoneLabel');
+    const emailLabel = $('#emailLabel');
+
+    let channel = 'whatsapp';
+    let timer = null;
+    let remaining = 15*60; // 15 min
+    let attempts = 0;
+    const LS_KEY = 'agendador_session_identity';
+
+    function openModal(){ modal.style.display='flex'; modal.setAttribute('aria-hidden','false'); }
+    function closeModal(){ modal.style.display='none'; modal.setAttribute('aria-hidden','true'); }
+
+    function setChannel(ch){
+      channel = ch;
+      tabWa.classList.toggle('active', ch==='whatsapp');
+      tabWa.setAttribute('aria-selected', ch==='whatsapp');
+      tabEmail.classList.toggle('active', ch==='email');
+      tabEmail.setAttribute('aria-selected', ch==='email');
+      sendForm.channel.value = ch;
+      if(ch==='whatsapp'){ show(phoneLabel,true); show(emailLabel,false); warnWa.style.display=''; }
+      else { show(phoneLabel,false); show(emailLabel,true); warnWa.style.display='none'; }
+    }
+
+    function formatMMSS(s){ const m = Math.floor(s/60).toString().padStart(2,'0'); const sec=(s%60).toString().padStart(2,'0'); return m+':'+sec; }
+
+    function startTimer(){
+      clearInterval(timer);
+      remaining = 15*60;
+      timerEl.textContent = formatMMSS(remaining);
+      timer = setInterval(()=>{
+        remaining--; timerEl.textContent = formatMMSS(remaining);
+        if(remaining<=0){ clearInterval(timer); toast('El código ha caducado. Pide uno nuevo.'); }
+      },1000);
+    }
+
+    function markLoggedIn(identity){
+      if(identity) localStorage.setItem(LS_KEY, identity);
+      openLogin.style.display='none';
+      logoutBtn.style.display='';
+      toast('Sesión iniciada ✅');
+      closeModal();
+      // TODO: aquí puedes refrescar la sección "Próximas citas" consultando tu API
+    }
+
+    function markLoggedOut(){
+      localStorage.removeItem(LS_KEY);
+      openLogin.style.display='';
+      logoutBtn.style.display=''; // dejamos visible el botón (por si no hay sesión en cookie, no pasa nada)
+      toast('Sesión cerrada');
+    }
+
+    // restaurar UI si hay identidad guardada (nota: la cookie httpOnly es la que manda realmente)
+    (function initSessionUI(){
+      if(localStorage.getItem(LS_KEY)){
+        openLogin.style.display='none';
+        logoutBtn.style.display='';
+      } else {
+        openLogin.style.display='';
+        logoutBtn.style.display='';
+      }
+    })();
+
+    // ======= eventos =======
+    openLogin.addEventListener('click', openModal);
+    closeLogin.addEventListener('click', closeModal);
+    tabWa.addEventListener('click', ()=>setChannel('whatsapp'));
+    tabEmail.addEventListener('click', ()=>setChannel('email'));
+    setChannel('whatsapp');
+
+    // Enviar código
+    sendForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      sendBtn.disabled = true; sendStatus.textContent = 'Enviando...';
+      const f = new FormData(sendForm);
+      const body = {
+        name: f.get('name'),
+        phone: f.get('phone') || undefined,
+        email: f.get('email') || undefined,
+        channel: f.get('channel')
+      };
+      try{
+        const r = await fetch('/auth/send-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'Fallo enviando el código');
+        sendStatus.textContent = 'Código enviado ✅';
+        toast('Código enviado');
+        startTimer();
+        attempts = 0;
+        attemptsEl.textContent = '';
+      }catch(err){
+        console.error(err);
+        sendStatus.textContent = '';
+        toast('Error: '+err.message);
+      }finally{
+        sendBtn.disabled = false;
+      }
+    });
+
+    // Verificar código
+    verifyForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      verifyBtn.disabled = true;
+      const f = new FormData(verifyForm);
+      const identity = f.get('identity');
+      const body = { code: f.get('code') };
+      if(identity.includes('@')) body.email = identity; else body.phone = identity;
+
+      try{
+        const r = await fetch('/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'No se pudo verificar');
+        markLoggedIn(identity);
+      }catch(err){
+        attempts++;
+        attemptsEl.textContent = `Intentos: ${attempts}`;
+        toast('❌ '+err.message);
+      }finally{
+        verifyBtn.disabled = false;
+      }
+    });
+
+    // Reenviar (atajo que reusa el canal/identidad actual)
+    resendBtn.addEventListener('click', async ()=>{
+      const f1 = new FormData(sendForm);
+      const f2 = new FormData(verifyForm);
+      // prioriza identidad de verifyForm si la hay
+      const identity = f2.get('identity') || '';
+      const body = {
+        name: f1.get('name') || 'Cliente',
+        channel
+      };
+      if(identity){
+        if(identity.includes('@')) body.email = identity; else body.phone = identity;
+      }else{
+        // usa lo que haya en el form de envío
+        const ph = f1.get('phone'); const em = f1.get('email');
+        if(channel==='whatsapp' && ph) body.phone = ph;
+        if(channel==='email' && em) body.email = em;
+      }
+      try{
+        const r = await fetch('/auth/send-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'No se pudo reenviar');
+        toast('Código reenviado');
+        startTimer();
+      }catch(err){
+        toast('❌ '+err.message);
+      }
+    });
+
+    // Logout
+    logoutBtn.addEventListener('click', async ()=>{
+      try{
+        const r = await fetch('/auth/logout',{method:'POST'});
+        const j = await r.json();
+        if(j.ok) markLoggedOut(); else toast('No se pudo cerrar sesión');
+      }catch{
+        toast('No se pudo cerrar sesión');
+      }
+    });
+
+    // accesibilidad: cerrar con ESC
+    document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeModal(); });
+    // cerrar modal al click fuera
+    modal.addEventListener('click', (e)=>{ if(e.target===modal) closeModal(); });
+  </script>
 </body>
 </html>
