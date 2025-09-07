@@ -4,33 +4,53 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Verificación · <%= org.name %></title>
-  <link rel="stylesheet" href="<%= cdn %>/styles.css"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;background:#fff;color:#111827;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    a{color:#111;text-decoration:none} a:hover{text-decoration:underline}
+    .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{width:100%;max-width:560px;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:28px}
+    .icon{width:64px;height:64px;border-radius:999px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:24px}
+    h1{font-size:1.8rem;line-height:1.2;text-align:center;margin:0 0 6px}
+    .sub{color:#6b7280;text-align:center;margin-bottom:12px}
+    .otp{display:flex;gap:10px;justify-content:center;margin:14px 0}
+    .otp input{width:56px;height:66px;text-align:center;font-size:28px;font-weight:700;border:1px solid #e5e7eb;border-radius:12px}
+    .otp input:focus{outline:2px solid #111;border-color:#111}
+    .btn{cursor:pointer;border:1px solid #e5e7eb;background:#fff;padding:10px 14px;border-radius:10px}
+    .btn.primary{background:#111;color:#fff;border-color:#111;font-weight:600}
+    .btn.link{background:transparent;border:none;color:#111;padding:0}
+    .wide{min-width:220px}
+    .foot{display:flex;gap:10px;justify-content:center;align-items:center;color:#6b7280;margin-top:8px;flex-wrap:wrap}
+    .err{margin-top:8px;color:#b91c1c;text-align:center}
+  </style>
 </head>
-<body class="center-stack">
-  <div class="verify-card">
-    <div class="veri-icon"><%= channel==='email' ? '✉️' : '📱' %></div>
-    <h1 class="veri-title"><%= channel==='email' ? 'Te hemos enviado un correo electrónico' : 'Te hemos enviado un mensaje de texto' %></h1>
-    <p class="veri-sub">Introduce el código de <%= OTP_LENGTH %> dígitos que hemos enviado a <strong><%= identityMasked %></strong>.</p>
+<body>
+  <main class="center">
+    <div class="card" role="dialog" aria-labelledby="t">
+      <div class="icon"><%= channel==='email' ? '✉️' : '📱' %></div>
+      <h1 id="t"><%= channel==='email' ? 'Te hemos enviado un correo electrónico' : 'Te hemos enviado un mensaje de texto' %></h1>
+      <p class="sub">Introduce el código de <%= OTP_LENGTH %> dígitos enviado a <strong><%= identityMasked %></strong>.</p>
 
-    <form id="otpForm" autocomplete="one-time-code">
-      <div class="otp-grid" id="otpGrid">
-        <% for (let i=0;i<OTP_LENGTH;i++){ %>
-          <input inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Dígito <%= i+1 %>" />
-        <% } %>
-      </div>
-      <button class="btn primary wide" id="verifyBtn">Verificar</button>
-      <div class="veri-foot">
-        <span id="timer">15:00</span>
-        <button type="button" class="btn link" id="resendBtn">Reenviar código</button>
-        <% if (channel==='whatsapp') { %>
-          · <a class="btn link" href="/verify?channel=email&identity=<%= encodeURIComponent(identityRaw) %>">Enviar al correo</a>
-        <% } else { %>
-          · <a class="btn link" href="/verify?channel=whatsapp&identity=<%= encodeURIComponent(identityRaw) %>">Enviar por WhatsApp</a>
-        <% } %>
-      </div>
-      <div id="errorBox" class="error" role="alert" style="display:none"></div>
-    </form>
-  </div>
+      <form id="otpForm" autocomplete="one-time-code">
+        <div class="otp" id="otpGrid">
+          <% for (let i=0;i<OTP_LENGTH;i++){ %>
+            <input inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Dígito <%= i+1 %>"/>
+          <% } %>
+        </div>
+        <div style="display:flex;justify-content:center"><button class="btn primary wide" id="verifyBtn">Verificar</button></div>
+        <div class="foot">
+          <span id="timer">15:00</span>
+          <button type="button" class="btn link" id="resendBtn">Reenviar código</button>
+          <% if (channel==='whatsapp') { %>
+            · <a class="btn link" href="/verify?channel=email&identity=<%= encodeURIComponent(identityRaw) %>">Enviar al correo</a>
+          <% } else { %>
+            · <a class="btn link" href="/verify?channel=whatsapp&identity=<%= encodeURIComponent(identityRaw) %>">Enviar por WhatsApp</a>
+          <% } %>
+        </div>
+        <div id="errorBox" class="err" role="alert" style="display:none"></div>
+      </form>
+    </div>
+  </main>
 
   <script>
     const OTP_LENGTH = <%= OTP_LENGTH %>;
@@ -42,9 +62,9 @@
     const inputs = Array.from(document.querySelectorAll('#otpGrid input'));
     const errorBox = document.getElementById('errorBox');
     const timerEl = document.getElementById('timer');
-
     inputs[0].focus();
-    inputs.forEach((inp, i)=>{
+
+    inputs.forEach((inp,i)=>{
       inp.addEventListener('input', e=>{
         e.target.value = e.target.value.replace(/\D/g,'').slice(0,1);
         if (e.target.value && i<inputs.length-1) inputs[i+1].focus();
@@ -62,7 +82,10 @@
       });
     });
 
-    let rem=15*60; setInterval(()=>{ rem=Math.max(0,rem-1); const m=String(Math.floor(rem/60)).padStart(2,'0'), s=String(rem%60).padStart(2,'0'); timerEl.textContent=`${m}:${s}`; },1000);
+    let rem=15*60; setInterval(()=>{ rem=Math.max(0,rem-1);
+      const m=String(Math.floor(rem/60)).padStart(2,'0'), s=String(rem%60).padStart(2,'0');
+      timerEl.textContent=`${m}:${s}`;
+    },1000);
 
     document.getElementById('otpForm').addEventListener('submit', async (e)=>{
       e.preventDefault();
