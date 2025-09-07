@@ -3,80 +3,103 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title><%= org.name %> · Agendador</title>
+  <title><%= org.name %> · Agenda</title>
   <link rel="stylesheet" href="<%= cdn %>/styles.css"/>
 </head>
 <body>
-  <main class="wrap">
-    <div class="topbar">
-      <div class="brand">
-        <% if (org.logo_url) { %>
-          <img src="<%= org.logo_url %>" alt="<%= org.name %>"/>
-        <% } else { %>
-          <div class="badge">/<%= org.slug %></div>
-        <% } %>
-        <div>
-          <h1 style="margin:0"><%= org.name %></h1>
-          <div class="muted">Agenda online</div>
-        </div>
-      </div>
-      <div class="actions">
-        <button id="openLogin" class="btn primary">Reservar / Iniciar sesión</button>
-        <button id="logoutBtn" class="btn ghost" title="Cerrar sesión">Salir</button>
+  <header class="topbar wrap">
+    <div class="brand">
+      <div class="logo-circle"><%= org.name[0] %></div>
+      <div>
+        <div class="brand-title"><%= org.name %></div>
+        <div class="brand-sub">Agenda online</div>
       </div>
     </div>
+    <nav class="actions">
+      <button id="changeLoc" class="btn">Cambiar ubicación</button>
+      <button id="openLogin" class="btn primary">Reservar / Iniciar sesión</button>
+      <button id="logoutBtn" class="btn ghost">Salir</button>
+    </nav>
+  </header>
 
-    <section class="grid">
-      <div class="hero card">
-        <h2 style="margin:0 0 8px">Reserva tu cita en 10 segundos</h2>
-        <p class="muted">Te verificamos por WhatsApp o por email. Sin contraseñas, sin dramas.</p>
-        <div class="divider"></div>
-        <div class="inline">
-          <span class="badge">Estado WhatsApp</span>
-          <span class="muted">Si no recibes el código por WhatsApp, escanea el QR:</span>
-          <a class="btn" href="/whatsapp/qr" target="_blank">Ver QR</a>
-          <a class="btn" href="/qr.png" target="_blank">/qr.png</a>
-        </div>
-      </div>
+  <main class="wrap grid">
+    <section class="card">
+      <h2>Servicios</h2>
+      <% if (!selectedLocationId) { %>
+        <div class="note">Selecciona una ubicación para continuar.</div>
+      <% } %>
 
-      <div class="card">
-        <h3 style="margin-top:0">Próximas citas</h3>
-        <div class="list"><div class="item muted">Inicia sesión para ver tus próximas reservas. (Placeholder)</div></div>
-      </div>
+      <% catalog.forEach(cat => { if (cat.services.length) { %>
+        <h3 class="cat-title"><%= cat.name %></h3>
+        <ul class="svc-list">
+          <% cat.services.forEach(s => { %>
+            <li class="svc-row">
+              <div class="svc-info">
+                <div class="svc-name"><%= s.name %></div>
+                <div class="svc-meta"><%= Math.round(s.price_cents/100).toLocaleString('es-ES') %> € · <%= s.duration_min %> min</div>
+              </div>
+              <div class="svc-cta">
+                <a class="btn" href="/book/<%= s.id %>">Reservar ahora</a>
+              </div>
+            </li>
+          <% }) %>
+        </ul>
+      <% } }) %>
     </section>
 
-    <section class="card" style="margin-top:16px">
-      <h3 style="margin-top:0">Cómo funciona</h3>
-      <ol class="muted">
-        <li>Entra con tu teléfono (WhatsApp) o tu email.</li>
-        <li>Recibes un código de <strong id="len"></strong> dígitos que caduca en 15 minutos.</li>
-        <li>Verificas y listo: reservas en 3 toques.</li>
-      </ol>
-    </section>
+    <aside class="card">
+      <h3>Tu cuenta</h3>
+      <p class="muted">Inicia sesión para ver tus próximas citas.</p>
+      <div class="inline">
+        <button id="toMyAppts" class="btn">Mis citas</button>
+      </div>
+      <div class="divider"></div>
+      <h3>WhatsApp</h3>
+      <div id="waStatus" class="muted">Comprobando estado…</div>
+      <div class="inline">
+        <a class="btn" href="/whatsapp/qr" target="_blank">Ver QR</a>
+        <a class="btn" href="/qr.png" target="_blank">/qr.png</a>
+      </div>
+    </aside>
   </main>
 
-  <!-- Modal mínimo para pedir identidad y redirigir a /verify -->
-  <div id="loginModal" class="modal-wrap" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <header>
-        <strong id="modalTitle">Acceso de clientes</strong>
-        <button id="closeLogin" class="btn">✕</button>
-      </header>
+  <!-- Modal ubicación -->
+  <div id="locModal" class="modal-wrap" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true">
+      <header><strong>Cambiar ubicación</strong><button class="btn" id="closeLoc">✕</button></header>
       <main>
-        <div class="tabs" role="tablist">
-          <button class="tab active" id="tabWa" data-channel="whatsapp" aria-selected="true">WhatsApp</button>
-          <button class="tab" id="tabEmail" data-channel="email" aria-selected="false">Email</button>
+        <ul class="list">
+          <% locations.forEach(l => { %>
+            <li class="item inline">
+              <input type="radio" name="loc" value="<%= l.id %>" <%= l.id===selectedLocationId ? 'checked' : '' %> />
+              <div style="flex:1">
+                <div><strong><%= l.name %></strong></div>
+                <div class="muted"><%= l.address %> — <%= l.city %></div>
+              </div>
+            </li>
+          <% }) %>
+        </ul>
+        <div class="inline" style="justify-content:flex-end;margin-top:10px">
+          <button class="btn primary" id="saveLoc">Confirmar punto de venta</button>
         </div>
+      </main>
+    </div>
+  </div>
 
+  <!-- Modal login (envía OTP y redirige a /verify) -->
+  <div id="loginModal" class="modal-wrap" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true">
+      <header><strong>Acceso de clientes</strong><button class="btn" id="closeLogin">✕</button></header>
+      <main>
+        <div class="tabs">
+          <button class="tab active" data-channel="whatsapp">WhatsApp</button>
+          <button class="tab" data-channel="email">Email</button>
+        </div>
         <form id="sendForm">
-          <label id="phoneLabel">Teléfono
-            <input name="phone" placeholder="+34..." inputmode="tel"/>
-          </label>
-          <label id="emailLabel" style="display:none">Email
-            <input name="email" type="email" placeholder="ejemplo@correo.com"/>
-          </label>
+          <label class="lbl" id="lblPhone">Teléfono<input name="phone" placeholder="+34..." inputmode="tel"/></label>
+          <label class="lbl" id="lblEmail" style="display:none">Email<input name="email" type="email" placeholder="cliente@correo.com"/></label>
           <input type="hidden" name="channel" value="whatsapp"/>
-          <button class="btn primary" id="sendBtn">Enviar código</button>
+          <button class="btn primary">Enviar código</button>
           <div id="sendStatus" class="muted" style="margin-top:6px"></div>
         </form>
       </main>
@@ -86,43 +109,66 @@
   <div id="toast" class="toast"></div>
 
   <script>
-    const $ = (s)=>document.querySelector(s);
-    const toast = (m)=>{ const t=$('#toast'); t.textContent=m; t.style.display='block'; setTimeout(()=>t.style.display='none', 2200); };
-    document.querySelector('#len').textContent = '<%= (process.env.OTP_LENGTH || 4) %>';
+    const $ = s=>document.querySelector(s);
+    const $$ = s=>Array.from(document.querySelectorAll(s));
+    const toast = m=>{ const t=$('#toast'); t.textContent=m; t.style.display='block'; setTimeout(()=>t.style.display='none', 2200); };
 
-    const modal = $('#loginModal'), openBtn=$('#openLogin'), closeBtn=$('#closeLogin');
-    const tabWa=$('#tabWa'), tabEmail=$('#tabEmail');
-    const phoneLabel=$('#phoneLabel'), emailLabel=$('#emailLabel');
-    const form=$('#sendForm'), sendBtn=$('#sendBtn'), sendStatus=$('#sendStatus');
+    // Estado WA
+    fetch('/whatsapp/status').then(r=>r.json()).then(j=>{
+      $('#waStatus').textContent = j.ready ? '✅ WhatsApp conectado' : '⚠️ WhatsApp no conectado';
+    }).catch(()=> $('#waStatus').textContent = 'No se pudo comprobar');
 
-    function open(){ modal.style.display='flex'; modal.setAttribute('aria-hidden','false'); }
-    function close(){ modal.style.display='none'; modal.setAttribute('aria-hidden','true'); }
-    function setChannel(ch){
-      form.channel.value=ch;
-      tabWa.classList.toggle('active', ch==='whatsapp'); tabWa.setAttribute('aria-selected', ch==='whatsapp');
-      tabEmail.classList.toggle('active', ch==='email');  tabEmail.setAttribute('aria-selected', ch==='email');
-      phoneLabel.style.display = ch==='whatsapp' ? '' : 'none';
-      emailLabel.style.display = ch==='email' ? '' : 'none';
-    }
-    openBtn.onclick=open; closeBtn.onclick=close; modal.addEventListener('click',(e)=>{ if(e.target===modal) close(); });
-    tabWa.onclick=()=>setChannel('whatsapp'); tabEmail.onclick=()=>setChannel('email'); setChannel('whatsapp');
+    // Cambiar ubicación
+    const locModal=$('#locModal'); const openLoc=$('#changeLoc'); const closeLoc=$('#closeLoc'); const saveLoc=$('#saveLoc');
+    openLoc.onclick=()=>{ locModal.style.display='flex'; locModal.setAttribute('aria-hidden','false'); };
+    closeLoc.onclick=()=>{ locModal.style.display='none'; locModal.setAttribute('aria-hidden','true'); };
+    locModal.addEventListener('click',(e)=>{ if(e.target===locModal) closeLoc.click(); });
+    saveLoc.onclick=async ()=>{
+      const chk = document.querySelector('input[name="loc"]:checked');
+      if (!chk) return toast('Elige una ubicación');
+      const r = await fetch('/session/location',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ location_id: chk.value }) });
+      const j = await r.json(); if (!j.ok) return toast('No se pudo guardar');
+      location.reload();
+    };
 
-    form.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      sendBtn.disabled=true; sendStatus.textContent='Enviando...';
-      const fd=new FormData(form);
-      const body={ channel: fd.get('channel'), name: 'Cliente' };
-      if(body.channel==='email'){ body.email=fd.get('email'); if(!body.email){ toast('Pon tu email'); sendBtn.disabled=false; sendStatus.textContent=''; return; } }
-      else { body.phone=fd.get('phone'); if(!body.phone){ toast('Pon tu teléfono'); sendBtn.disabled=false; sendStatus.textContent=''; return; } }
+    // Login
+    const loginModal=$('#loginModal'), openLogin=$('#openLogin'), closeLogin=$('#closeLogin');
+    const tabs=$$('.tab'); const form=$('#sendForm'); const lblPhone=$('#lblPhone'); const lblEmail=$('#lblEmail'); const status=$('#sendStatus');
+    openLogin.onclick=()=>{ loginModal.style.display='flex'; loginModal.setAttribute('aria-hidden','false'); };
+    closeLogin.onclick=()=>{ loginModal.style.display='none'; loginModal.setAttribute('aria-hidden','true'); };
+    loginModal.addEventListener('click',(e)=>{ if(e.target===loginModal) closeLogin.click(); });
 
-      const r=await fetch('/auth/send-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      const j=await r.json();
-      sendBtn.disabled=false; sendStatus.textContent='';
-      if(!j.ok){ toast('❌ '+(j.error||'Error enviando')); return; }
-      // redirige a la pantalla Square-like
-      const identity = body.email || body.phone;
-      location.href = j.verify_url || (`/verify?channel=${body.channel}&identity=${encodeURIComponent(identity)}`);
+    tabs.forEach(t=> t.onclick=()=>{
+      tabs.forEach(x=>x.classList.remove('active')); t.classList.add('active');
+      form.channel.value = t.dataset.channel;
+      lblPhone.style.display = t.dataset.channel==='whatsapp' ? '' : 'none';
+      lblEmail.style.display = t.dataset.channel==='email' ? '' : 'none';
     });
+
+    form.onsubmit = async (e)=>{
+      e.preventDefault(); status.textContent='Enviando...';
+      const fd=new FormData(form); const channel=fd.get('channel');
+      const payload={ channel, name:'Cliente' };
+      if (channel==='email'){ payload.email=fd.get('email'); if(!payload.email) return status.textContent='Pon tu email'; }
+      else { payload.phone=fd.get('phone'); if(!payload.phone) return status.textContent='Pon tu teléfono'; }
+      const r=await fetch('/auth/send-code',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const j=await r.json(); if(!j.ok) { status.textContent='Error: '+(j.error||''); return; }
+      // guarda para luego mis-citas
+      localStorage.setItem('agendador_session_channel', channel);
+      localStorage.setItem('agendador_session_identity', payload.email || payload.phone);
+      location.href = j.verify_url;
+    };
+
+    // Mis citas
+    $('#toMyAppts').onclick=()=>{
+      const ch = localStorage.getItem('agendador_session_channel');
+      const id = localStorage.getItem('agendador_session_identity');
+      if (!ch || !id) return toast('Primero inicia sesión');
+      location.href = `/me/appointments?channel=${encodeURIComponent(ch)}&identity=${encodeURIComponent(id)}`;
+    };
+
+    // Logout
+    $('#logoutBtn').onclick=async ()=>{ await fetch('/auth/logout',{method:'POST'}); toast('Sesión cerrada'); };
   </script>
 </body>
 </html>
