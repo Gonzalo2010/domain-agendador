@@ -3,73 +3,32 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Reservar · <%= org.name %></title>
-  <link rel="stylesheet" href="<%= cdn %>/styles.css"/>
+  <title>Mis citas · <%= org.name %></title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;background:#fff;color:#111827;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{max-width:900px;margin:0 auto;padding:20px}
+    .list{display:grid;gap:10px;margin-top:12px}
+    .item{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fff}
+    .muted{color:#6b7280}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #e5e7eb;font-size:12px;margin-top:6px}
+  </style>
 </head>
 <body>
-  <main class="wrap grid">
-    <section class="card">
-      <h2>Elige profesional</h2>
-      <ul class="list">
-        <% employees.forEach(e => { %>
-          <li class="item inline">
-            <div class="avatar" style="background:<%= e.color_hex || '#111' %>"><%= e.name[0] %></div>
-            <div style="flex:1"><strong><%= e.name %></strong></div>
-            <button class="btn" onclick="selectEmp('<%= e.id %>')">Seleccionar</button>
-          </li>
-        <% }) %>
-      </ul>
-      <div class="note">Profesional seleccionado: <span id="empSel">ninguno</span></div>
-      <div class="inline" style="margin-top:10px">
-        <input type="date" id="day"/>
-        <button class="btn" id="loadSlots">Ver horas</button>
-      </div>
-      <div id="slots" class="chips"></div>
-    </section>
-
-    <aside class="card">
-      <h3>Confirmar</h3>
-      <p class="muted">Para reservar necesitas iniciar sesión (ya lo hiciste con OTP).</p>
-      <label>Tu nombre
-        <input id="cname" placeholder="Tu nombre"/>
-      </label>
-      <button class="btn primary wide" id="confirmBtn" disabled>Confirmar cita</button>
-      <div id="status" class="muted" style="margin-top:8px"></div>
-    </aside>
+  <main class="wrap">
+    <h2>Hola, <%= clientName %></h2>
+    <div class="list">
+      <% if (appts.length === 0) { %>
+        <div class="muted">No tienes citas próximas.</div>
+      <% } %>
+      <% appts.forEach(a => { %>
+        <div class="item">
+          <div><strong><%= a.services?.name || 'Servicio' %></strong> con <%= a.employees?.name || 'equipo' %></div>
+          <div class="muted"><%= new Date(a.start_at).toLocaleString() %> — <%= new Date(a.end_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) %></div>
+          <div class="pill"><%= a.status %></div>
+        </div>
+      <% }) %>
+    </div>
   </main>
-
-  <script>
-    const serviceId = '<%= serviceId %>';
-    let employeeId=null, chosenStart=null, chosenEnd=null;
-    function selectEmp(id){ employeeId=id; document.getElementById('empSel').textContent=id; }
-
-    document.getElementById('loadSlots').onclick = async ()=>{
-      if (!employeeId){ alert('Elige profesional'); return; }
-      const d = document.getElementById('day').value; if(!d){ alert('Elige día'); return; }
-      const r = await fetch(`/api/slots?serviceId=${serviceId}&employeeId=${employeeId}&date=${d}`); const j=await r.json();
-      const box = document.getElementById('slots'); box.innerHTML='';
-      (j.slots||[]).forEach(s=>{
-        const b=document.createElement('button'); b.className='chip';
-        b.textContent=new Date(s.start_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-        b.onclick=()=>{ chosenStart=s.start_at; chosenEnd=s.end_at; document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.getElementById('confirmBtn').disabled=false; };
-        box.appendChild(b);
-      });
-      if (!(j.slots||[]).length) box.innerHTML='<div class="muted">Sin huecos</div>';
-    };
-
-    document.getElementById('confirmBtn').onclick = async ()=>{
-      if (!chosenStart) return;
-      const name=document.getElementById('cname').value || 'Cliente';
-      const channel=localStorage.getItem('agendador_session_channel'); const identity=localStorage.getItem('agendador_session_identity');
-      const client = { name }; if (channel==='email') client.email=identity; else client.phone=identity;
-
-      const r = await fetch('/book/confirm',{ method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ service_id: serviceId, employee_id: employeeId, start_at: chosenStart, client }) });
-      const j = await r.json(); const st=document.getElementById('status');
-      if (!j.ok) { st.textContent='❌ '+(j.error||'Error'); return; }
-      st.textContent='✅ Cita creada';
-      setTimeout(()=>{ location.href='/me/appointments?channel='+encodeURIComponent(channel)+'&identity='+encodeURIComponent(identity); }, 750);
-    };
-  </script>
 </body>
 </html>
