@@ -4,7 +4,29 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Reservar · <%= org.name %></title>
-  <link rel="stylesheet" href="<%= cdn %>/styles.css"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body,h1,h2,h3,p{margin:0}
+    body{background:#fff;color:#111827;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{max-width:1080px;margin:0 auto;padding:20px}
+    .grid{display:grid;gap:16px}
+    @media(min-width:900px){ .grid{grid-template-columns:1.6fr .8fr} }
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px}
+    .list{display:grid;gap:10px}
+    .item{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fff}
+    .inline{display:flex;gap:10px;align-items:center}
+    .avatar{width:36px;height:36px;border-radius:999px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+    .btn{cursor:pointer;border:1px solid #e5e7eb;background:#fff;padding:10px 14px;border-radius:10px}
+    .btn.primary{background:#111;color:#fff;border-color:#111}
+    .wide{min-width:220px}
+    input{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff}
+    input:focus{outline:2px solid #111;border-color:#111}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .chip{border:1px solid #e5e7eb;background:#f3f4f6;padding:8px 10px;border-radius:999px;cursor:pointer}
+    .chip.active,.chip:hover{background:#e5e7eb}
+    .muted{color:#6b7280}
+    .note{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin:8px 0}
+  </style>
 </head>
 <body>
   <main class="wrap grid">
@@ -29,7 +51,7 @@
 
     <aside class="card">
       <h3>Confirmar</h3>
-      <p class="muted">Para reservar necesitas iniciar sesión (ya lo hiciste con OTP).</p>
+      <p class="muted">Para reservar necesitas iniciar sesión (OTP).</p>
       <label>Tu nombre
         <input id="cname" placeholder="Tu nombre"/>
       </label>
@@ -41,6 +63,7 @@
   <script>
     const serviceId = '<%= serviceId %>';
     let employeeId=null, chosenStart=null, chosenEnd=null;
+
     function selectEmp(id){ employeeId=id; document.getElementById('empSel').textContent=id; }
 
     document.getElementById('loadSlots').onclick = async ()=>{
