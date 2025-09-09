@@ -1,4 +1,6 @@
-import 'dotenv/config';
+// index.mjs — multi-tenant con slug por defecto (sin landing)
+
+// --- IMPORTS ---
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -15,41 +17,60 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode';
 
+// --- CONFIG EN TEXTO CLARO (ajusta a lo tuyo) ---
+const CONFIG = {
+  PORT: 80,
+
+  // Supabase
+  SUPABASE_URL: 'https://qjyowonpjkhsxnktzimq.supabase.co',
+  SUPABASE_SERVICE_ROLE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqeW93b25wamtoc3hua3R6aW1xIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzAwMTUxOSwiZXhwIjoyMDcyNTc3NTE5fQ.JgXme8pZ8uXtJ51rdNShD4cDyN6CPC4cqhhzMr1PyHA', // <-- asegúrate de poner la tuya
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqeW93b25wamtoc3hua3R6aW1xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwMDE1MTksImV4cCI6MjA3MjU3NzUxOX0.3S37zQaSqgBBa80U_J4lxtqBe1ihlvIeBwaGYfxfnS0',                 // (usaremos service role si está)
+
+  // Email (Resend)
+  RESEND_API_KEY: 're_BqqPZu9L_5sijn76uvP872TpYVnfWq6EM',
+  MAIL_FROM_EMAIL: 'notifications@mail.agendador.es',
+  MAIL_FROM_NAME: 'Agendador',
+
+  // Seguridad de cookies
+  SESSION_SECRET: 'cambia_esto_por_un_secreto_serio',
+
+  // WhatsApp / QR
+  QR_DIR: '/tmp',
+
+  // OTP
+  OTP_LENGTH: 6,
+
+  // Org por defecto (para root domain, api.*, etc.)
+  DEFAULT_ORG_SLUG: 'agendador',
+};
+
+// --- RUNTIME BASICS ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1); // detrás de Cloudflare/Nginx
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use('/static', express.static(path.join(__dirname, 'public'), { maxAge: '7d' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser(process.env.SESSION_SECRET || 'dev-secret'));
-
-const {
-  PORT = 3000,
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY,
-  SUPABASE_ANON_KEY,
-  RESEND_API_KEY,
-  MAIL_FROM_EMAIL,
-  MAIL_FROM_NAME = 'Agendador',
-  QR_DIR = '/tmp',
-  OTP_LENGTH: OTP_ENV = '6'
-} = process.env;
-const OTP_LENGTH = Number(OTP_ENV || 6);
+app.use(cookieParser(CONFIG.SESSION_SECRET || 'dev-secret'));
 
 // === Supabase ===
-const SUPABASE_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
-if (!SUPABASE_URL || !SUPABASE_KEY) { console.error('Faltan SUPABASE_URL/KEY'); process.exit(1); }
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_KEY = CONFIG.SUPABASE_SERVICE_ROLE_KEY || CONFIG.SUPABASE_ANON_KEY;
+if (!CONFIG.SUPABASE_URL || !SUPABASE_KEY) { 
+  console.error('Faltan SUPABASE_URL o KEY en CONFIG'); 
+  process.exit(1); 
+}
+const supabase = createClient(CONFIG.SUPABASE_URL, SUPABASE_KEY);
 
 // === WhatsApp + QR ===
 let wa = null; let waReady = false; let waQR = null;
-const QR_PATH = path.join(QR_DIR, 'qr.png');
+const QR_PATH = path.join(CONFIG.QR_DIR, 'qr.png');
 
-async function ensureQrDir(){ try{ await fsp.mkdir(QR_DIR,{recursive:true}); }catch{} }
+async function ensureQrDir(){ try{ await fsp.mkdir(CONFIG.QR_DIR,{recursive:true}); }catch{} }
 async function writeQrPng(qr){
   await ensureQrDir();
   const buf = await qrcode.toBuffer(qr, { type:'png', width:512, errorCorrectionLevel:'M' });
@@ -81,6 +102,42 @@ async function sendWhatsAppMessage(phone, text){
   await wa.sendMessage(`${digits}@s.whatsapp.net`, { text });
 }
 
+// === HELPERS ===
+const reserved = new Set(['www']); // <- Ojo: ya NO metemos 'api' aquí
+const host = req => (req.headers.host||'').split(':')[0].toLowerCase();
+const sub  = h => { const p=h.split('.'); return p.length<3?null:p[0]; };
+
+// Fallback sólido: slug por defecto cuando no hay subdominio o es reservado
+function resolveSlug(req){
+  const h = host(req);
+  const s = sub(h); // primera etiqueta si hay 3+ niveles
+  if (s && !reserved.has(s)) return s;
+
+  // Si no hay subdominio (agendador.es) o es reservado (p. ej. www),
+  // intentamos query ?o=..., y si no, usamos la org por defecto
+  const q = req.query?.o ? String(req.query.o).toLowerCase() : null;
+  return q || CONFIG.DEFAULT_ORG_SLUG;
+}
+
+const ttl = m => new Date(Date.now() + m*60*1000);
+const minutes = t => { const [H,M]=t.split(':').map(Number); return H*60+(M||0); };
+const overlaps = (a0,a1,b0,b1)=> a0<b1 && b0<a1;
+
+function maskIdentity(id){
+  if (!id) return '';
+  if (String(id).includes('@')) { const [u,d]=String(id).split('@'); const uu = (u.length<=2?u[0]+'***':u.slice(0,2)+'***'); return uu+'@'+d; }
+  const digits = String(id).replace(/\D/g,''); return '••• •• '+digits.slice(-2);
+}
+const randomDigits = n => Array.from({length:n},()=>Math.floor(Math.random()*10)).join('');
+
+function selectedLoc(req){ return req.cookies?.loc || null; }
+
+// === DEBUG RÁPIDO (temporal) ===
+app.get('/__debug', (req,res)=>{
+  res.json({ host: host(req), slug: resolveSlug(req), headers: req.headers });
+});
+
+// === QR/WA utilidades públicas ===
 app.get('/whatsapp/qr', (_req,res)=>{
   const hint = waReady ? '✅ Conectado' : 'Escanea el QR y refresca';
   res.send(`<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui">
@@ -95,37 +152,38 @@ app.get('/qr.png', async (_req,res)=>{
   catch{ res.status(404).send('QR no disponible'); }
 });
 app.get('/whatsapp/status', (_req,res)=> res.json({ ready: waReady }));
-
-// === Helpers ===
-const reserved = new Set(['www','api','dev','staging']);
-const host = req => (req.headers.host||'').split(':')[0].toLowerCase();
-const sub  = h => { const p=h.split('.'); return p.length<3?null:p[0]; };
-function resolveSlug(req){ const s=sub(host(req)); if (s && !reserved.has(s)) return s; if (req.query?.o) return String(req.query.o).toLowerCase(); return null; }
-const ttl = m => new Date(Date.now() + m*60*1000);
-const minutes = t => { const [H,M]=t.split(':').map(Number); return H*60+(M||0); };
-const overlaps = (a0,a1,b0,b1)=> a0<b1 && b0<a1;
-
-function maskIdentity(id){
-  if (!id) return '';
-  if (String(id).includes('@')) { const [u,d]=String(id).split('@'); const uu = (u.length<=2?u[0]+'***':u.slice(0,2)+'***'); return uu+'@'+d; }
-  const digits = String(id).replace(/\D/g,''); return '••• •• '+digits.slice(-2);
-}
-const randomDigits = n => Array.from({length:n},()=>Math.floor(Math.random()*10)).join('');
-
-function selectedLoc(req){ return req.cookies?.loc || null; }
-
-// === Multi-tenant (org por subdominio) ===
-app.use(async (req,res,next)=>{
-  if (['/health','/whatsapp/qr','/qr.png','/whatsapp/status'].includes(req.path)) return next();
-  const slug = resolveSlug(req);
-  if (!slug) return res.send('Landing Agendador');
-  const { data: org, error } = await supabase.from('organizations').select('*').eq('slug', slug).maybeSingle();
-  if (error) return res.status(500).send('Error organización'); if (!org) return res.status(404).send('Org no encontrada');
-  req.org = org; next();
-});
 app.get('/health', (_req,res)=> res.json({ ok:true }));
 
-// === Sesión ubicación ===
+// === MULTI-TENANT (carga org SIEMPRE; no mostramos "Landing") ===
+app.use(async (req,res,next)=>{
+  if (['/health','/whatsapp/qr','/qr.png','/whatsapp/status','/__debug'].includes(req.path)) return next();
+  const slug = resolveSlug(req);
+
+  try{
+    const { data: org, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .eq('slug', slug)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[org-load] error:', error);
+      return res.status(500).send('Error organización (consulta)');
+    }
+    if (!org) {
+      console.warn('[org-load] no existe org con slug:', slug);
+      return res.status(404).send('Organización no encontrada');
+    }
+
+    req.org = org;
+    next();
+  }catch(e){
+    console.error('[org-load] excepción:', e);
+    res.status(500).send('Error organización (excepción)');
+  }
+});
+
+// === SESIÓN UBICACIÓN ===
 app.post('/session/location', (req,res)=>{
   const { location_id } = req.body || {};
   if (!location_id) return res.status(400).json({ ok:false, error:'Falta location_id' });
@@ -133,23 +191,27 @@ app.post('/session/location', (req,res)=>{
   res.json({ ok:true });
 });
 
-// === HOME: catálogo estilo Square ===
+// === HOME (catálogo) ===
 app.get('/', async (req,res)=>{
   try{
     const org = req.org;
     const locId = selectedLoc(req);
 
-    const { data: locations } = await supabase
+    const { data: locations, error: eL } = await supabase
       .from('locations').select('id,name,address,city,tz').eq('org_id', org.id).order('created_at');
+    if (eL) throw eL;
 
-    const { data: categories } = await supabase
+    const { data: categories, error: eC } = await supabase
       .from('service_categories').select('id,name').eq('org_id', org.id).order('name');
+    if (eC) throw eC;
 
-    const { data: svcLinks } = await supabase
+    const { data: svcLinks, error: eCL } = await supabase
       .from('service_category_links').select('service_id,category_id');
+    if (eCL) throw eCL;
 
-    const { data: services } = await supabase
+    const { data: services, error: eS } = await supabase
       .from('services').select('id,name,duration_min,price_cents,active').eq('org_id', org.id).eq('active', true).order('name');
+    if (eS) throw eS;
 
     const cats = (categories||[]).map(c=>({ ...c, services:[] }));
     const catMap = new Map(cats.map(c=>[c.id,c]));
@@ -157,10 +219,10 @@ app.get('/', async (req,res)=>{
     for (const l of (svcLinks||[])){ const c=catMap.get(l.category_id); const s=svcMap.get(l.service_id); if (c&&s) c.services.push(s); }
 
     res.render('tenant', { org, cdn:'/static', locations: locations||[], catalog: cats, selectedLocationId: locId });
-  }catch(e){ console.error(e); res.status(500).send('Error cargando catálogo'); }
+  }catch(e){ console.error('[home]', e); res.status(500).send('Error cargando catálogo'); }
 });
 
-// === EMPLEADOS para un servicio + slots ===
+// === EMPLEADOS + slots ===
 app.get('/book/:serviceId', async (req,res)=>{
   try{
     const org = req.org;
@@ -180,7 +242,7 @@ app.get('/book/:serviceId', async (req,res)=>{
       .order('name');
 
     res.render('book_employees', { org, cdn:'/static', serviceId, employees: employees||[] });
-  }catch(e){ console.error(e); res.status(500).send('Error cargando profesionales'); }
+  }catch(e){ console.error('[book:list]', e); res.status(500).send('Error cargando profesionales'); }
 });
 
 // === API slots (YYYY-MM-DD) ===
@@ -266,10 +328,10 @@ app.get('/api/slots', async (req,res)=>{
     }
     results.sort((a,b)=> a.start_at.localeCompare(b.start_at));
     res.json({ ok:true, slots: results });
-  }catch(e){ console.error(e); res.status(500).json({ ok:false, error:'No se pudieron calcular slots' }); }
+  }catch(e){ console.error('[slots]', e); res.status(500).json({ ok:false, error:'No se pudieron calcular slots' }); }
 });
 
-// === Confirmar reserva (requiere cookie de sesión) ===
+// === Confirmar reserva ===
 app.post('/book/confirm', async (req,res)=>{
   try{
     if (!req.cookies?.sess) return res.status(401).json({ ok:false, error:'No autenticado' });
@@ -315,12 +377,11 @@ app.post('/book/confirm', async (req,res)=>{
     }).select('id,start_at,end_at').single();
     if (ea) throw ea;
 
-    // TODO: aquí puedes disparar confirmación por WA/email y marcar flags
     res.json({ ok:true, appointment: appt });
-  }catch(e){ console.error(e); res.status(500).json({ ok:false, error:'No se pudo crear la cita' }); }
+  }catch(e){ console.error('[confirm]', e); res.status(500).json({ ok:false, error:'No se pudo crear la cita' }); }
 });
 
-// === Verificación estilo Square ===
+// === Verificación ===
 app.get('/verify', (req,res)=>{
   const channel = (req.query.channel||'whatsapp').toLowerCase()==='email' ? 'email' : 'whatsapp';
   const identityRaw = (req.query.identity||'').trim();
@@ -328,7 +389,7 @@ app.get('/verify', (req,res)=>{
 
   res.render('verify', {
     org: req.org, cdn:'/static', channel, identityRaw,
-    identityMasked: maskIdentity(identityRaw), OTP_LENGTH
+    identityMasked: maskIdentity(identityRaw), OTP_LENGTH: CONFIG.OTP_LENGTH
   });
 });
 
@@ -342,7 +403,7 @@ app.post('/auth/send-code', async (req,res)=>{
     if (channel==='whatsapp' && !phone) return res.status(400).json({ ok:false, error:'Falta phone' });
     if (!phone && !email) return res.status(400).json({ ok:false, error:'Falta identidad' });
 
-    const code = randomDigits(OTP_LENGTH);
+    const code = randomDigits(CONFIG.OTP_LENGTH);
     const expiresAt = ttl(15);
 
     const { error:e1 } = await supabase.from('otp_codes').insert({
@@ -352,12 +413,12 @@ app.post('/auth/send-code', async (req,res)=>{
     if (e1) throw e1;
 
     if (channel==='email'){
-      if (!RESEND_API_KEY || !MAIL_FROM_EMAIL) return res.status(500).json({ ok:false, error:'Email no configurado' });
+      if (!CONFIG.RESEND_API_KEY || !CONFIG.MAIL_FROM_EMAIL) return res.status(500).json({ ok:false, error:'Email no configurado' });
       await fetch('https://api.resend.com/emails', {
         method:'POST',
-        headers:{ 'Authorization':`Bearer ${RESEND_API_KEY}`, 'Content-Type':'application/json' },
+        headers:{ 'Authorization':`Bearer ${CONFIG.RESEND_API_KEY}`, 'Content-Type':'application/json' },
         body: JSON.stringify({
-          from: `${MAIL_FROM_NAME} <${MAIL_FROM_EMAIL}>`,
+          from: `${CONFIG.MAIL_FROM_NAME} <${CONFIG.MAIL_FROM_EMAIL}>`,
           to: email,
           subject: `${req.org?.name || 'Agendador'} · Tu código de verificación`,
           html: `<div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:520px;margin:auto;padding:16px">
@@ -381,7 +442,7 @@ app.post('/auth/send-code', async (req,res)=>{
   }catch(e){ console.error('[send-code]', e); res.status(500).json({ ok:false, error:'No se pudo enviar el código' }); }
 });
 
-// === Verificar OTP (crea sesión) ===
+// === Verificar OTP ===
 app.post('/auth/verify', async (req,res)=>{
   try{
     const { phone, email, code } = req.body;
@@ -403,7 +464,7 @@ app.post('/auth/verify', async (req,res)=>{
 });
 app.post('/auth/logout', (_req,res)=>{ res.clearCookie('sess'); res.json({ ok:true }); });
 
-// === Mis citas (simple) ===
+// === Mis citas ===
 app.get('/me/appointments', async (req,res)=>{
   try{
     if (!req.cookies?.sess) return res.status(401).send('No autenticado');
@@ -425,7 +486,11 @@ app.get('/me/appointments', async (req,res)=>{
       .gte('start_at', new Date().toISOString()).order('start_at');
 
     res.render('me_appointments', { org, cdn:'/static', appts: appts||[], clientName: cli.name });
-  }catch(e){ console.error(e); res.status(500).send('Error listando citas'); }
+  }catch(e){ console.error('[me/appointments]', e); res.status(500).send('Error listando citas'); }
 });
 
-app.listen(PORT, ()=>{ console.log('Agendador en http://localhost:'+PORT); startWhatsApp().catch(console.error); });
+// --- START ---
+app.listen(CONFIG.PORT, ()=>{
+  console.log('Agendador en http://localhost:'+CONFIG.PORT);
+  startWhatsApp().catch(console.error);
+});
