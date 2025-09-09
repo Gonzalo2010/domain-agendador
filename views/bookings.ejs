@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Reservar · <%= org.name %></title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body,h1,h2,h3,p{margin:0}
+    body{background:#fff;color:#111827;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{max-width:1080px;margin:0 auto;padding:20px}
+    .grid{display:grid;gap:16px}
+    @media(min-width:900px){ .grid{grid-template-columns:1.6fr .8fr} }
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px}
+    .list{display:grid;gap:10px}
+    .item{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fff}
+    .inline{display:flex;gap:10px;align-items:center}
+    .avatar{width:36px;height:36px;border-radius:999px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+    .btn{cursor:pointer;border:1px solid #e5e7eb;background:#fff;padding:10px 14px;border-radius:10px}
+    .btn.primary{background:#111;color:#fff;border-color:#111}
+    .wide{min-width:220px}
+    input,select{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff}
+    input:focus,select:focus{outline:2px solid #111;border-color:#111}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .chip{border:1px solid #e5e7eb;background:#f3f4f6;padding:8px 10px;border-radius:999px;cursor:pointer}
+    .chip.active,.chip:hover{background:#e5e7eb}
+    .muted{color:#6b7280}
+    .note{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin:8px 0}
+    .cols{display:grid;gap:10px}
+    @media(min-width:700px){ .cols{grid-template-columns:1fr 1fr} }
+    .small{font-size:14px}
+    .kpi{display:flex;gap:8px;align-items:center;font-size:14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px}
+    .tag{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 8px;font-size:12px}
+    .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  </style>
+</head>
+<body>
+  <main class="wrap grid">
+    <section class="card">
+      <h2><%= service.name %> — elige profesional</h2>
+
+      <!-- Opción sin preferencia -->
+      <div class="item inline" style="margin-bottom:10px">
+        <div class="avatar" style="background:#111">✦</div>
+        <div style="flex:1">
+          <strong>Sin preferencia</strong>
+          <div class="small muted">Te buscamos huecos entre <%= employees.length %> profesionales que hacen este servicio.</div>
+        </div>
+        <button class="btn" onclick="selectEmp('any')">Seleccionar</button>
+      </div>
+
+      <!-- Solo personal asociado al servicio -->
+      <ul class="list">
+        <% employees.forEach(e => { %>
+          <li class="item">
+            <div class="inline">
+              <div class="avatar" style="background:<%= e.color_hex || '#111' %>"><%= e.name[0] %></div>
+              <div style="flex:1">
+                <strong><%= e.name %></strong>
+                <div class="legend small">
+                  <span class="tag">Asociado a: <%= service.name %></span>
+                </div>
+              </div>
+              <button class="btn" onclick="selectEmp('<%= e.id %>')">Seleccionar</button>
+            </div>
+            <div class="small muted" id="line-<%= e.id %>" style="margin-top:8px">Horario del día: — | Citas: —</div>
+          </li>
+        <% }) %>
+      </ul>
+
+      <div class="note">Profesional seleccionado: <span id="empSel">ninguno</span></div>
+
+      <div class="inline" style="margin-top:10px">
+        <input type="date" id="day"/>
+        <button class="btn" id="loadSlots">Ver horas</button>
+      </div>
+
+      <div class="cols" style="margin-top:12px">
+        <div>
+          <h3 style="margin-bottom:6px">Horario y citas</h3>
+          <div id="empInfo" class="small muted">Selecciona profesional y día para ver su horario y reservas.</div>
+        </div>
+        <div>
+          <h3 style="margin-bottom:6px">Horas disponibles</h3>
+          <div class="chips" id="slots"></div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span class="tag">• Horas a en punto o y media</span>
+        <span class="tag">• Se respeta la duración: <%= service.duration_min %> min</span>
+        <span class="tag">• Bloques/ausencias/citas excluidas</span>
+      </div>
+    </section>
+
+    <aside class="card">
+      <h3>Confirmar</h3>
+      <p class="muted">Para reservar necesitas iniciar sesión (OTP).</p>
+      <label>Tu nombre
+        <input id="cname" placeholder="Tu nombre"/>
+      </label>
+      <button class="btn primary wide" id="confirmBtn" disabled>Confirmar cita</button>
+      <div id="status" class="muted" style="margin-top:8px"></div>
+    </aside>
+  </main>
+
+  <script>
+    const serviceId = '<%= service.id %>';
+    const tz = '<%= location.tz || "Europe/Madrid" %>';
+    const employees = <%- JSON.stringify(employees) %>;
+    let employeeId=null, chosenStart=null, chosenEnd=null, chosenEmpForSlot=null;
+
+    // hoy por defecto
+    const dayInput = document.getElementById('day');
+    dayInput.value = new Date().toISOString().slice(0,10);
+
+    function selectEmp(id){
+      employeeId=id;
+      document.getElementById('empSel').textContent = (id==='any'?'Sin preferencia':(employees.find(e=>e.id===id)?.name||id));
+      document.getElementById('slots').innerHTML='';
+      document.getElementById('empInfo').textContent='Selecciona día y pulsa "Ver horas".';
+      chosenStart = chosenEnd = chosenEmpForSlot = null;
+      document.getElementById('confirmBtn').disabled = true;
+    }
+
+    function fmtTime(dt){
+      const d=new Date(dt);
+      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    }
+    function fmtRange(a,b){ return fmtTime(a)+'–'+fmtTime(b); }
+
+    async function loadOverviewAndSlots(){
+      if (!employeeId){ alert('Elige profesional (o Sin preferencia)'); return; }
+      const d = document.getElementById('day').value; if(!d){ alert('Elige día'); return; }
+
+      const url = new URL('/api/slots', location.origin);
+      url.searchParams.set('serviceId', serviceId);
+      url.searchParams.set('employeeId', employeeId);
+      url.searchParams.set('date', d);
+      url.searchParams.set('tz', tz);
+
+      const r = await fetch(url.toString());
+      const j = await r.json();
+
+      const infoBox = document.getElementById('empInfo');
+
+      if (employeeId !== 'any') {
+        const line = document.getElementById('line-'+employeeId);
+        if (j.schedule && j.schedule.length){
+          const schedStr = j.schedule.map(s => fmtRange(s.start_at, s.end_at)).join(', ');
+          const apptStr = (j.appointments||[]).map(a => fmtRange(a.start_at, a.end_at)).join(', ') || 'ninguna';
+          line.textContent = `Horario del día: ${schedStr} | Citas: ${apptStr}`;
+          infoBox.innerHTML = `
+            <div class="kpi"><strong>Horario:</strong> ${schedStr}</div>
+            <div class="kpi"><strong>Citas:</strong> ${apptStr}</div>`;
+        } else {
+          line.textContent = 'Horario del día: — | Citas: —';
+          infoBox.textContent = 'Sin horario activo ese día o no operativo.';
+        }
+      } else {
+        infoBox.innerHTML = `
+          <div class="kpi"><strong>Modo:</strong> Sin preferencia</div>
+          <div class="kpi"><strong>Huecos generados:</strong> ${(j.slots||[]).length}</div>`;
+      }
+
+      const box = document.getElementById('slots'); box.innerHTML='';
+      (j.slots||[]).forEach(s=>{
+        const b=document.createElement('button'); b.className='chip';
+        const label = fmtTime(s.start_at) + (s.any ? ` · ${s.free_employees||1} disp.` : '');
+        b.textContent = label.trim();
+        b.title = fmtRange(s.start_at, s.end_at);
+        b.onclick=()=>{
+          chosenStart=s.start_at; chosenEnd=s.end_at; chosenEmpForSlot=s.employee_id;
+          document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));
+          b.classList.add('active');
+          document.getElementById('confirmBtn').disabled=false;
+        };
+        box.appendChild(b);
+      });
+      if (!(j.slots||[]).length) box.innerHTML='<div class="muted">Sin huecos</div>';
+    }
+
+    document.getElementById('loadSlots').onclick = loadOverviewAndSlots;
+
+    document.getElementById('confirmBtn').onclick = async ()=>{
+      if (!chosenStart) return;
+      const name=document.getElementById('cname').value || 'Cliente';
+      const channel=localStorage.getItem('agendador_session_channel');
+      const identity=localStorage.getItem('agendador_session_identity');
+      const client = { name }; if (channel==='email') client.email=identity; else client.phone=identity;
+
+      const payload = {
+        service_id: serviceId,
+        employee_id: chosenEmpForSlot || employeeId, // si es "any", usamos el sugerido
+        start_at: chosenStart,
+        client
+      };
+
+      const r = await fetch('/book/confirm',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const j = await r.json(); const st=document.getElementById('status');
+      if (!j.ok) { st.textContent='❌ '+(j.error||'Error'); return; }
+      st.textContent='✅ Cita creada';
+      setTimeout(()=>{ location.href='/me/appointments?channel='+encodeURIComponent(channel||'')+'&identity='+encodeURIComponent(identity||''); }, 750);
+    };
+  </script>
+</body>
+</html>
